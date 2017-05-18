@@ -142,6 +142,7 @@ public class SnapshotReader extends AbstractReader {
         boolean isLocked = false;
         boolean isTxnStarted = false;
         boolean tableLocks = false;
+        boolean skipLocking = true;
         try {
             metrics.startSnapshot();
 
@@ -205,7 +206,7 @@ public class SnapshotReader extends AbstractReader {
 
                 if (!isRunning()) return;
                 step = 3;
-                if (isLocked) {
+                if (isLocked || skipLocking) {
                     // Obtain the binlog position and update the SourceInfo in the context. This means that all source records
                     // generated as part of the snapshot will contain the binlog position of the snapshot.
                     readBinlogPosition(step++, source, mysql, sql);
@@ -263,7 +264,7 @@ public class SnapshotReader extends AbstractReader {
                 final Set<String> includedDatabaseNames = readableDatabaseNames.stream().filter(filters.databaseFilter()).collect(Collectors.toSet());
                 logger.info("\tsnapshot continuing with database(s): {}", includedDatabaseNames);
 
-                if (!isLocked) {
+                if (!isLocked && !skipLocking) {
                     // ------------------------------------
                     // LOCK TABLES and READ BINLOG POSITION
                     // ------------------------------------
