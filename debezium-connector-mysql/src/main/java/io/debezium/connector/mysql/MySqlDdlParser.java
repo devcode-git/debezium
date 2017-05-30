@@ -153,6 +153,8 @@ public class MySqlDdlParser extends DdlParser {
             parseUse(marker);
         } else if (tokens.matches("SET")) {
             parseSet(marker);
+        } else if (tokens.matches("DELETE")) {
+            consumeRemainingStatement(marker);
         } else {
             parseUnknownStatement(marker);
         }

@@ -42,6 +42,12 @@ public class MySqlDdlParserTest {
         listener = new SimpleDdlParserListener();
         parser.addListener(listener);
     }
+    
+    @Test
+    public void shouldIgnoreInvalidRDSDeleteStatement() {
+        String ddl = "DELETE FROM mysql.rds_sysinfo where name = 'innodb_txn_key'";
+        parser.parse(ddl, tables);
+    }
 
     @Test
     public void shouldParseMultipleStatements() {
