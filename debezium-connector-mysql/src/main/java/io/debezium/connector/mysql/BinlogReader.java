@@ -454,6 +454,10 @@ public class BinlogReader extends AbstractReader {
             ignoreDmlEventByGtidSource = false;
             return;
         }
+        if(sql.contains("TRIGGER")) {
+            logger.error("Skip command: {}", event);
+            return;
+        }
         if (sql.toUpperCase().startsWith("XA ")) {
             // This is an XA transaction, and we currently ignore these and do nothing ...
             return;
