@@ -454,7 +454,7 @@ public class BinlogReader extends AbstractReader {
             ignoreDmlEventByGtidSource = false;
             return;
         }
-        if(sql.contains("TRIGGER")) {
+        if(sql.toLowerCase().contains("trigger")) {
             logger.error("Skip command: {}", event);
             return;
         }
