@@ -56,6 +56,7 @@ public class SnapshotReader extends AbstractReader {
     private RecordRecorder recorder;
     private final SnapshotReaderMetrics metrics;
     private ExecutorService executorService;
+    private ThreadedSnapshotReader threadedSnapshotReader;
 
     private final MySqlConnectorConfig.SnapshotLockingMode snapshotLockingMode;
 
@@ -124,6 +125,9 @@ public class SnapshotReader extends AbstractReader {
 
     @Override
     protected void doCleanup() {
+        if(threadedSnapshotReader != null) {
+            threadedSnapshotReader.shutdown();
+        }
         executorService.shutdown();
         logger.debug("Completed writing all snapshot records");
     }
@@ -473,6 +477,7 @@ public class SnapshotReader extends AbstractReader {
 
                             AtomicLong numRows = new AtomicLong(-1);
                             AtomicReference<String> rowCountStr = new AtomicReference<>("<unknown>");
+                            boolean largeTable = true;
                             StatementFactory statementFactory = this::createStatementWithLargeResultSet;
                             if (largeTableCount > 0) {
                                 try {
@@ -484,6 +489,7 @@ public class SnapshotReader extends AbstractReader {
                                         if (rs.next()) numRows.set(rs.getLong(5));
                                     });
                                     if (numRows.get() <= largeTableCount) {
+                                        largeTable = false;
                                         statementFactory = this::createStatement;
                                     }
                                     rowCountStr.set(numRows.toString());
@@ -505,46 +511,76 @@ public class SnapshotReader extends AbstractReader {
 
                             try {
                                 int stepNum = step;
-                                mysql.query(sql.get(), statementFactory, rs -> {
-                                    try {
-                                        // The table is included in the connector's filters, so process all of the table records
-                                        // ...
-                                        final Table table = schema.tableFor(tableId);
-                                        final int numColumns = table.columns().size();
-                                        final Object[] row = new Object[numColumns];
-                                        while (rs.next()) {
-                                            for (int i = 0, j = 1; i != numColumns; ++i, ++j) {
-                                                Column actualColumn = table.columns().get(i);
-                                                row[i] = readField(rs, j, actualColumn);
+
+                                // Threaded Snapshot batch mode
+                                // NOTE: Threaded snapshot will give some duplicate records as we're not using any db locks
+                                if(context.snapShotBatchEnabled() && largeTable && selectOverrides.containsKey(tableId)) {
+                                    final String sqlTemplate;
+                                    final Long startId;
+                                    final Long endId;
+
+                                    if(sql.get().contains("|")) {
+                                        final String[] sqlTemplateAndParams = sql.get().split("\\|");
+                                        sqlTemplate = sqlTemplateAndParams[0];
+                                        startId = Long.valueOf(sqlTemplateAndParams[1]);
+                                        endId = Long.valueOf(sqlTemplateAndParams[2]);
+                                    } else {
+                                        sqlTemplate = sql.get();
+                                        startId = null;
+                                        endId = null;
+                                    }
+                                    // normal statmentfactory, as we will buffer the chunks in memory
+                                    statementFactory = this::createStatement;
+
+                                    threadedSnapshotReader = 
+                                        new ThreadedSnapshotReader(context, connectionContext, statementFactory, this::readField);
+
+                                    final long totalRows = threadedSnapshotReader.executeQuery(schema, tableId, recorder, 
+                                        recordMaker, ts, sqlTemplate, startId, endId);
+
+                                    totalRowCount.set(totalRows);
+                                } else {
+                                    mysql.query(sql.get(), statementFactory, rs -> {
+                                        try {
+                                            // The table is included in the connector's filters, so process all of the table records
+                                            // ...
+                                            final Table table = schema.tableFor(tableId);
+                                            final int numColumns = table.columns().size();
+                                            final Object[] row = new Object[numColumns];
+                                            while (rs.next()) {
+                                                for (int i = 0, j = 1; i != numColumns; ++i, ++j) {
+                                                    Column actualColumn = table.columns().get(i);
+                                                    row[i] = readField(rs, j, actualColumn);
+                                                }
+                                                recorder.recordRow(recordMaker, row, ts); // has no row number!
+                                                rowNum.incrementAndGet();
+                                                if (rowNum.get() % 100 == 0 && !isRunning()) {
+                                                    // We've stopped running ...
+                                                    break;
+                                                }
+                                                if (rowNum.get() % 10_000 == 0) {
+                                                    long stop = clock.currentTimeInMillis();
+                                                    logger.info("Step {}: - {} of {} rows scanned from table '{}' after {}",
+                                                                stepNum, rowNum, rowCountStr, tableId, Strings.duration(stop - start));
+                                                    metrics.rowsScanned(tableId, rowNum.get());
+                                                }
                                             }
-                                            recorder.recordRow(recordMaker, row, ts); // has no row number!
-                                            rowNum.incrementAndGet();
-                                            if (rowNum.get() % 100 == 0 && !isRunning()) {
-                                                // We've stopped running ...
-                                                break;
-                                            }
-                                            if (rowNum.get() % 10_000 == 0) {
+
+                                            totalRowCount.addAndGet(rowNum.get());
+                                            if (isRunning()) {
                                                 long stop = clock.currentTimeInMillis();
-                                                logger.info("Step {}: - {} of {} rows scanned from table '{}' after {}",
-                                                            stepNum, rowNum, rowCountStr, tableId, Strings.duration(stop - start));
+                                                logger.info("Step {}: - Completed scanning a total of {} rows from table '{}' after {}",
+                                                            stepNum, rowNum, tableId, Strings.duration(stop - start));
                                                 metrics.rowsScanned(tableId, rowNum.get());
                                             }
+                                        } catch (InterruptedException e) {
+                                            Thread.interrupted();
+                                            // We were not able to finish all rows in all tables ...
+                                            logger.info("Step {}: Stopping the snapshot due to thread interruption", stepNum);
+                                            interrupted.set(true);
                                         }
-
-                                        totalRowCount.addAndGet(rowNum.get());
-                                        if (isRunning()) {
-                                            long stop = clock.currentTimeInMillis();
-                                            logger.info("Step {}: - Completed scanning a total of {} rows from table '{}' after {}",
-                                                        stepNum, rowNum, tableId, Strings.duration(stop - start));
-                                            metrics.rowsScanned(tableId, rowNum.get());
-                                        }
-                                    } catch (InterruptedException e) {
-                                        Thread.interrupted();
-                                        // We were not able to finish all rows in all tables ...
-                                        logger.info("Step {}: Stopping the snapshot due to thread interruption", stepNum);
-                                        interrupted.set(true);
-                                    }
-                                });
+                                    });
+                                }
                             }
                             finally {
                                 metrics.tableSnapshotCompleted(tableId, rowNum.get());

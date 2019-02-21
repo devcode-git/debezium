@@ -208,6 +208,18 @@ public final class MySqlTaskContext extends CdcSourceTaskContext {
         return config.getLong(MySqlConnectorConfig.ROW_COUNT_FOR_STREAMING_RESULT_SETS);
     }
 
+    public boolean snapShotBatchEnabled() {
+        return config.getBoolean(MySqlConnectorConfig.SNAPSHOT_BATCH_ENABLED);
+    }
+
+    public int snapShotBatchSize() {
+        return config.getInteger(MySqlConnectorConfig.SNAPSHOT_BATCH_SIZE);
+    }
+
+    public int snapShotBatchThreads() {
+        return config.getInteger(MySqlConnectorConfig.SNAPSHOT_BATCH_THREADS);
+    }
+
     public int bufferSizeForBinlogReader() {
         return config.getInteger(MySqlConnectorConfig.BUFFER_SIZE_FOR_BINLOG_READER);
     }

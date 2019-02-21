@@ -24,6 +24,7 @@ import io.debezium.config.Field;
 import io.debezium.connector.mysql.MySqlConnectorConfig.EventProcessingFailureHandlingMode;
 import io.debezium.connector.mysql.MySqlConnectorConfig.SecureConnectionMode;
 import io.debezium.jdbc.JdbcConnection;
+import io.debezium.jdbc.JdbcPool;
 import io.debezium.jdbc.JdbcConnection.ConnectionFactory;
 import io.debezium.relational.history.DatabaseHistory;
 import io.debezium.util.Strings;
@@ -45,6 +46,7 @@ public class MySqlJdbcContext implements AutoCloseable {
     protected final Logger logger = LoggerFactory.getLogger(getClass());
     protected final Configuration config;
     protected final JdbcConnection jdbc;
+    protected final JdbcPool jdbcPool;
     private final Map<String, String> originalSystemProperties = new HashMap<>();
 
     public MySqlJdbcContext(Configuration config) {
@@ -74,14 +76,27 @@ public class MySqlJdbcContext implements AutoCloseable {
         String driverClassName = jdbcConfig.getString(MySqlConnectorConfig.JDBC_DRIVER);
         this.jdbc = new JdbcConnection(jdbcConfig,
                 JdbcConnection.patternBasedFactory(MYSQL_CONNECTION_URL, driverClassName, getClass().getClassLoader()));
+        this.jdbcPool = config.getBoolean(MySqlConnectorConfig.SNAPSHOT_BATCH_ENABLED)
+                ? new JdbcPool(MYSQL_CONNECTION_URL, driverClassName, jdbcConfig)
+                : null;
     }
 
     public Configuration config() {
         return config;
     }
 
+    public void closePool() {
+        if (this.jdbcPool != null) {
+            this.jdbcPool.close();
+        }
+    }
+
     public JdbcConnection jdbc() {
         return jdbc;
+    }
+
+    public JdbcConnection pooledJdbc() {
+        return jdbcPool.getConnection();
     }
 
     public Logger logger() {

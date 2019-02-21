@@ -1016,6 +1016,34 @@ public class MySqlConnectorConfig extends RelationalDatabaseConnectorConfig {
                     "'antlr' (the default) uses generated parser from MySQL grammar using ANTLR v4 tool which use ALL(*) algorithm for parsing." +
                     "This parser creates a parsing tree for DDL statement, then walks trough it and apply changes by node types in parsed tree.");
 
+    public static final Field SNAPSHOT_BATCH_ENABLED = Field.create("snapshot.batch.enabled")
+                                                            .withDisplayName("Snapshot batch enabled")
+                                                            .withType(Type.BOOLEAN)
+                                                            .withWidth(Width.MEDIUM)
+                                                            .withImportance(Importance.LOW)
+                                                            .withDescription("Flag to enable snapshot batch mode")
+                                                            .withDefault(false)
+                                                            .withValidation(Field::isNonNegativeInteger);
+
+    public static final Field SNAPSHOT_BATCH_SIZE = Field.create("snapshot.batch.size")
+                                                            .withDisplayName("Snapshot batch size per thread")
+                                                            .withType(Type.INT)
+                                                            .withWidth(Width.MEDIUM)
+                                                            .withImportance(Importance.LOW)
+                                                            .withDescription("The number of rows to fetch per thread for large queries")
+                                                            .withDefault(1_000)
+                                                            .withValidation(Field::isNonNegativeInteger);
+
+    public static final Field SNAPSHOT_BATCH_THREADS = Field.create("snapshot.batch.threads")
+                                                            .withDisplayName("Snapshot batch threads")
+                                                            .withType(Type.INT)
+                                                            .withWidth(Width.MEDIUM)
+                                                            .withImportance(Importance.LOW)
+                                                            .withDescription("The number of snapshot threads for large queries")
+                                                            .withDefault(8)
+                                                            .withValidation(Field::isNonNegativeInteger);
+                       
+
     /**
      * Method that generates a Field for specifying that string columns whose names match a set of regular expressions should
      * have their values truncated to be no longer than the specified number of characters.

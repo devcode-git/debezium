@@ -185,7 +185,7 @@ public class JdbcConnection implements AutoCloseable {
         };
     }
 
-    private static Field[] combineVariables(Field[] overriddenVariables,
+    protected static Field[] combineVariables(Field[] overriddenVariables,
                                             Field... defaultVariables) {
         Map<String, Field> fields = new HashMap<>();
         if (defaultVariables != null) {
@@ -201,7 +201,7 @@ public class JdbcConnection implements AutoCloseable {
         return fields.values().toArray(new Field[fields.size()]);
     }
 
-    private static String findAndReplace(String url, Properties props, Field... variables) {
+    protected static String findAndReplace(String url, Properties props, Field... variables) {
         for (Field field : variables) {
             if ( field != null ) url = findAndReplace(url, field.name(), props);
         }
