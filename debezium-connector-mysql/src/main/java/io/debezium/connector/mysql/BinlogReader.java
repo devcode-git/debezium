@@ -647,6 +647,10 @@ public class BinlogReader extends AbstractReader {
             handleTransactionCompletion(event);
             return;
         }
+        if(sql.toLowerCase().contains("trigger")) {
+            logger.error("Skip command: {}", event);
+            return;
+        }
         if (sql.toUpperCase().startsWith("XA ")) {
             // This is an XA transaction, and we currently ignore these and do nothing ...
             return;
