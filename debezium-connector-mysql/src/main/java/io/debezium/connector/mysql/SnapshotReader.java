@@ -477,7 +477,6 @@ public class SnapshotReader extends AbstractReader {
 
                             AtomicLong numRows = new AtomicLong(-1);
                             AtomicReference<String> rowCountStr = new AtomicReference<>("<unknown>");
-                            boolean largeTable = true;
                             StatementFactory statementFactory = this::createStatementWithLargeResultSet;
                             if (largeTableCount > 0) {
                                 try {
@@ -489,7 +488,6 @@ public class SnapshotReader extends AbstractReader {
                                         if (rs.next()) numRows.set(rs.getLong(5));
                                     });
                                     if (numRows.get() <= largeTableCount) {
-                                        largeTable = false;
                                         statementFactory = this::createStatement;
                                     }
                                     rowCountStr.set(numRows.toString());
@@ -514,7 +512,7 @@ public class SnapshotReader extends AbstractReader {
 
                                 // Threaded Snapshot batch mode
                                 // NOTE: Threaded snapshot will give some duplicate records as we're not using any db locks
-                                if(context.snapShotBatchEnabled() && largeTable && selectOverrides.containsKey(tableId)) {
+                                if(context.snapShotBatchEnabled() && selectOverrides.containsKey(tableId)) {
                                     final String sqlTemplate;
                                     final Long startId;
                                     final Long endId;
