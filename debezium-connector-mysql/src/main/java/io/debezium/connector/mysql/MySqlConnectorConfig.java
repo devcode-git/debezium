@@ -1042,6 +1042,17 @@ public class MySqlConnectorConfig extends RelationalDatabaseConnectorConfig {
                                                             .withDescription("The number of snapshot threads for large queries")
                                                             .withDefault(8)
                                                             .withValidation(Field::isNonNegativeInteger);
+
+    public static final Field SNAPSHOT_SELECT_COUNT_STATEMENT_OVERRIDES_BY_TABLE = Field.create("snapshot.select.count.statement.overrides")
+                                                            .withDisplayName("List of tables where the default select count statement used during snapshotting should be overridden.")
+                                                            .withType(Type.STRING)
+                                                            .withWidth(Width.LONG)
+                                                            .withImportance(Importance.MEDIUM)
+                                                            .withDescription(" This property contains a comma-separated list of fully-qualified tables (DB_NAME.TABLE_NAME). Select count statements for the individual tables are " +
+                                                                    "specified in further configuration properties, one for each table, identified by the id 'snapshot.select.count.statement.overrides.[DB_NAME].[TABLE_NAME]'. " +
+                                                                    "The value of those properties is the select count statement to use when retrieving data from the specific table during snapshotting. " +
+                                                                    "The query must return a single numeric value, example: SELECT MAX(id) FROM table");
+                                                
                        
 
     /**

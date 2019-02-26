@@ -8,7 +8,10 @@ package io.debezium.connector.mysql;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,18 +34,18 @@ public class ThreadedSnapshotReader {
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
 
-    private long batchSize;
     private final ExecutorService queryExecutor;
+    private MySqlTaskContext context;
     private MySqlJdbcContext connectionContext;
     private StatementFactory statementFactory;
     private ReadFieldFactory readFieldFactory;
 
     public ThreadedSnapshotReader(MySqlTaskContext context, MySqlJdbcContext connectionContext, StatementFactory statementFactory, ReadFieldFactory readFieldFactory) {
+        this.context = context;
         this.connectionContext = connectionContext;
         this.statementFactory = statementFactory;
         this.readFieldFactory = readFieldFactory;
         this.queryExecutor = Executors.newFixedThreadPool(context.snapShotBatchThreads());
-        this.batchSize = context.snapShotBatchSize();
     }
 
     public void shutdown() {
@@ -54,7 +57,10 @@ public class ThreadedSnapshotReader {
         RecordsForTable recordMaker, long ts, String sqlTemplate, Long requestedStart, Long requestedEnd) {
         
         final String sqlUse = "use " + quote(tableId.catalog()) + ";";
-        final String sqlCount = "select count(*) from " + tableId.table() + ";";
+        final Map<TableId, String> selectCountOverrides = getSnapshotSelectCountOverridesByTable();
+        final String sqlCount = selectCountOverrides.getOrDefault(tableId, "SELECT COUNT(*) FROM "  + tableId.table() + ";");
+
+        logger.info("Counting rows using query: {}", sqlCount);
 
         // Count the rows, we will get some extra rows as we do the count after the binlog position was stored 
         // Also we're not using any db locks for the threads
@@ -72,18 +78,20 @@ public class ThreadedSnapshotReader {
             throw new RuntimeException(e);
         }
 
-        logger.info("total rows {}", totalTableRows.get());
+        logger.info("Total rows: {}", totalTableRows.get());
 
         final long start = requestedStart != null ? requestedStart : 0;
         final long end = requestedEnd != null ? Math.min(totalTableRows.get(), requestedEnd) : totalTableRows.get();
 
         final List<Future<Long>> queryTaskResults = new ArrayList<>();
 
+        final int batchSize = context.snapShotBatchSize();
+
         for(long i = start; i <= end; i += batchSize) {
             final long batchStart = i;
             final long batchEnd = Math.min(i + batchSize, totalTableRows.get());
             final String sql = String.format(sqlTemplate, batchStart, batchEnd);
-            logger.trace("query {}", sql);
+            logger.trace("Query: {}", sql);
             final Table table = schema.tableFor(tableId);
             final int numColumns = table.columns().size();
 
@@ -154,6 +162,28 @@ public class ThreadedSnapshotReader {
     @FunctionalInterface
     public interface ReadFieldFactory {
         Object readField(ResultSet rs, int fieldNo, Column actualColumn) throws SQLException;
+    }
+
+    /**
+     * Returns any SELECT COUNT overrides, if present.
+     */
+    private Map<TableId, String> getSnapshotSelectCountOverridesByTable() {
+        final String tableList = context.getSnapshotSelectCountOverrides();
+
+        if (tableList == null) {
+            return Collections.emptyMap();
+        }
+
+        final Map<TableId, String> snapshotSelectCountOverridesByTable = new HashMap<>();
+
+        for (String table : tableList.split(",")) {
+            snapshotSelectCountOverridesByTable.put(
+                TableId.parse(table),
+                context.config().getString(MySqlConnectorConfig.SNAPSHOT_SELECT_COUNT_STATEMENT_OVERRIDES_BY_TABLE + "." + table)
+            );
+        }
+
+        return snapshotSelectCountOverridesByTable;
     }
 
 }
